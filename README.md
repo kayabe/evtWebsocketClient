@@ -1,4 +1,10 @@
 # evtWebsocketClient
+
+[![Actions Status](https://github.com/evtWebsocketClient/workflows/Go/badge.svg)](https://github.com/evtWebsocketClient/actions)
+[![Coverage Status](https://coveralls.io/repos/github/evtWebsocketClient/badge.svg?branch=master)](https://coveralls.io/github/evtWebsocketClient?branch=master)
+[![Go Report Card](https://goreportcard.com/badge/github.com/evtWebsocketClient)](https://goreportcard.com/report/github.com/evtWebsocketClient)
+[![](https://godoc.org/github.com/evtWebsocketClient?status.svg)](https://pkg.go.dev/github.com/evtWebsocketClient?tab=doc)
+
 An Event driven golang websocket client, meant for websocket events that need callbacks
 
 Built very quickly in a few hours because I needed some specific functionality
