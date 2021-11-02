@@ -147,7 +147,7 @@ func (c *Conn) IsConnected() bool {
 // Send sends a message through the connection.
 func (c *Conn) Send(msg Msg) (err error) {
 	if msg.Body == nil {
-		return errors.New("No message body")
+		return errors.New("no message body")
 	}
 	if c.closed {
 		return errors.New("closed connection")
@@ -155,7 +155,7 @@ func (c *Conn) Send(msg Msg) (err error) {
 	if msg.Callback != nil && c.addToQueue != nil {
 		defer func() {
 			if r := recover(); r != nil {
-				err = fmt.Errorf("%v Recovered from error while sending: %v\r\n", time.Now(), r)
+				err = fmt.Errorf("%v Recovered from error while sending: %v", time.Now(), r)
 			}
 		}()
 		c.addToQueue <- msgOperation{
@@ -172,7 +172,7 @@ func (c *Conn) Send(msg Msg) (err error) {
 func (c *Conn) RemoveFromQueue(msg Msg) (err error) {
 	defer func() {
 		if r := recover(); r != nil {
-			err = fmt.Errorf("%v Reccovered from error while removing from queue: %v\r\n", time.Now(), r)
+			err = fmt.Errorf("%v Reccovered from error while removing from queue: %v", time.Now(), r)
 		}
 	}()
 	if c.closed {
