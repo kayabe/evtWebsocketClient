@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"io"
@@ -14,6 +15,11 @@ import (
 	"github.com/gobwas/ws/wsutil"
 )
 
+type BasicAuth struct {
+	Username string
+	Password string
+}
+
 // Conn is the connection structure.
 type Conn struct {
 	OnMessage   func(Msg, *Conn)
@@ -22,6 +28,7 @@ type Conn struct {
 	MatchMsg    func(Msg, Msg) bool
 	Reconnect   bool
 	MsgPrep     func(*Msg)
+	BasicAuth   *BasicAuth
 	ws          net.Conn
 	url         string
 	closed      bool
@@ -348,6 +355,13 @@ func (c *Conn) Dial(url string, tlsconf *tls.Config) error {
 	var err error
 	if tlsconf != nil {
 		ws.DefaultDialer.TLSConfig = tlsconf
+	}
+	if c.BasicAuth != nil {
+		ws.DefaultDialer.Header = ws.HandshakeHeaderHTTP{
+			"Authorization": {
+				"Basic " + base64.StdEncoding.EncodeToString([]byte(c.BasicAuth.Username+":"+c.BasicAuth.Password)),
+			},
+		}
 	}
 	c.ws, _, _, err = ws.Dial(context.Background(), url)
 	if err != nil {
