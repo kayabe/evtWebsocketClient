@@ -131,7 +131,7 @@ func (c *Conn) setupPing() {
 					c.pingCount++
 				}
 				if c.pingCount > c.UnreceivedPingThreshold+1 {
-					c.onError(errors.New("too many pings not responded too"))
+					c.onError(errors.New("too many pings not responded to"))
 					return
 				}
 				c.pingTimer = time.Now().Add(time.Second * time.Duration(c.PingIntervalSecs))
