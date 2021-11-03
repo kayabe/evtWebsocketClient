@@ -1,18 +1,14 @@
 package evtWebsocketClient
 
 import (
-	"bytes"
 	"context"
-	"crypto/tls"
 	"encoding/base64"
 	"errors"
 	"fmt"
-	"io"
-	"net"
+	"net/http"
 	"time"
 
-	"github.com/gobwas/ws"
-	"github.com/gobwas/ws/wsutil"
+	"github.com/gorilla/websocket"
 )
 
 type BasicAuth struct {
@@ -29,11 +25,14 @@ type Conn struct {
 	Reconnect   bool
 	MsgPrep     func(*Msg)
 	BasicAuth   *BasicAuth
-	ws          net.Conn
+	ws          *websocket.Conn
 	url         string
 	closed      bool
 	msgQueue    []Msg
 	addToQueue  chan msgOperation
+
+	Dialer        websocket.Dialer
+	RequestHeader http.Header
 
 	PingMsg                 []byte
 	ComposePingMessage      func() []byte
@@ -124,9 +123,9 @@ func (c *Conn) setupPing() {
 					msg = c.PingMsg
 				}
 				if len(msg) > 0 {
-					c.write(ws.OpText, msg)
+					c.write(websocket.TextMessage, msg)
 				}
-				c.write(ws.OpPing, []byte(``))
+				c.write(websocket.PingMessage, []byte(``))
 				if c.CountPongs {
 					c.pingCount++
 				}
@@ -171,7 +170,7 @@ func (c *Conn) Send(msg Msg) (err error) {
 			msg: &msg,
 		}
 	}
-	c.write(ws.OpText, msg.Body)
+	c.write(websocket.TextMessage, msg.Body)
 	return nil
 }
 
@@ -205,11 +204,11 @@ func (c *Conn) read() bool {
 	}
 	// m := []wsutil.Message{}
 	// m, err := wsutil.ReadServerMessage(c.ws, m)
-	var buf bytes.Buffer
-	msg, op, err := wsutil.ReadServerData(struct {
-		io.Reader
-		io.Writer
-	}{c.ws, &buf})
+
+	// todo: fix-me
+	// var buf bytes.Buffer
+
+	op, msg, err := c.ws.ReadMessage()
 	if err != nil {
 		c.onError(err)
 		return false
@@ -217,15 +216,18 @@ func (c *Conn) read() bool {
 
 	c.readerAvailable <- struct{}{}
 
-	if buf.Len() > 0 {
-		_, ok := <-c.writerAvailable
-		if ok {
-			c.ws.Write(buf.Bytes())
-			c.writerAvailable <- struct{}{}
+	/*
+		// todo: fix-me ... im not sure what this is supposed to do
+		if buf.Len() > 0 {
+			_, ok := <-c.writerAvailable
+			if ok {
+				c.ws.Write(buf.Bytes())
+				c.writerAvailable <- struct{}{}
+			}
 		}
-	}
+	*/
 
-	if op == ws.OpClose {
+	if op == websocket.CloseMessage {
 		c.close()
 		return true
 	}
@@ -234,11 +236,11 @@ func (c *Conn) read() bool {
 
 	// for _, msg := range m {
 	// 	switch msg.OpCode {
-	// 	case ws.OpPing:
-	// 		go c.write(ws.OpPong, nil)
-	// 	case ws.OpPong:
+	// 	case websocket.OpPing:
+	// 		go c.write(websocket.OpPong, nil)
+	// 	case websocket.OpPong:
 	// 		go c.PongReceived()
-	// 	case ws.OpClose:
+	// 	case websocket.OpClose:
 	// 		c.close()
 	// 		return true
 	// 	default:
@@ -249,7 +251,7 @@ func (c *Conn) read() bool {
 	return true
 }
 
-func (c *Conn) write(opcode ws.OpCode, pkt []byte) {
+func (c *Conn) write(opcode int, pkt []byte) {
 	defer func() {
 		if r := recover(); r != nil {
 			fmt.Printf("%v Recovered from error while writing to connection %v\r\n", time.Now(), r)
@@ -259,7 +261,7 @@ func (c *Conn) write(opcode ws.OpCode, pkt []byte) {
 	if !ok {
 		return
 	}
-	err := wsutil.WriteClientMessage(c.ws, opcode, pkt)
+	err := c.ws.WriteMessage(opcode, pkt)
 	if err != nil {
 		c.onError(err)
 		return
@@ -268,7 +270,7 @@ func (c *Conn) write(opcode ws.OpCode, pkt []byte) {
 }
 
 func (c *Conn) sendCloseFrame() {
-	c.write(ws.OpClose, []byte(``))
+	c.write(websocket.CloseMessage, []byte(``))
 }
 
 func (c *Conn) startQueueManager() {
@@ -328,7 +330,7 @@ func (c *Conn) close() {
 
 	if c.Reconnect {
 		for {
-			if err := c.Dial(c.url, ws.DefaultDialer.TLSConfig); err == nil {
+			if err := c.Dial(c.url); err == nil {
 				break
 			}
 			time.Sleep(time.Second * 1)
@@ -342,7 +344,7 @@ func (c *Conn) close() {
 // must have been set before calling it.
 // tlsconf is optional and provides settings for handling
 // connections to tls setvers via wss protocol
-func (c *Conn) Dial(url string, tlsconf *tls.Config) error {
+func (c *Conn) Dial(url string) error {
 	c.closed = true
 	c.url = url
 	if c.msgQueue == nil {
@@ -353,17 +355,10 @@ func (c *Conn) Dial(url string, tlsconf *tls.Config) error {
 	c.pingCount = 0
 
 	var err error
-	if tlsconf != nil {
-		ws.DefaultDialer.TLSConfig = tlsconf
-	}
 	if c.BasicAuth != nil {
-		ws.DefaultDialer.Header = ws.HandshakeHeaderHTTP{
-			"Authorization": {
-				"Basic " + base64.StdEncoding.EncodeToString([]byte(c.BasicAuth.Username+":"+c.BasicAuth.Password)),
-			},
-		}
+		c.RequestHeader.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte(c.BasicAuth.Username+":"+c.BasicAuth.Password)))
 	}
-	c.ws, _, _, err = ws.Dial(context.Background(), url)
+	c.ws, _, err = c.Dialer.DialContext(context.Background(), url, c.RequestHeader)
 	if err != nil {
 		return err
 	}
@@ -395,7 +390,7 @@ func (c *Conn) Dial(url string, tlsconf *tls.Config) error {
 	// resend dropped messages if this is a reconnect
 	if len(c.msgQueue) > 0 {
 		for _, msg := range c.msgQueue {
-			go c.write(ws.OpText, msg.Body)
+			go c.write(websocket.TextMessage, msg.Body)
 		}
 	}
 

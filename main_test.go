@@ -2,15 +2,24 @@ package evtWebsocketClient
 
 import (
 	"crypto/tls"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/gobwas/ws"
-	"github.com/gobwas/ws/wsutil"
+	"github.com/gorilla/websocket"
 )
+
+var cstUpgrader = websocket.Upgrader{
+	ReadBufferSize:    1024,
+	WriteBufferSize:   1024,
+	EnableCompression: true,
+	Error: func(w http.ResponseWriter, r *http.Request, status int, reason error) {
+		http.Error(w, reason.Error(), status)
+	},
+}
 
 type cstHandler struct{ *testing.T }
 
@@ -36,22 +45,29 @@ func newTLSServer(t *testing.T) *cstServer {
 }
 
 func (t cstHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	conn, _, _, err := ws.UpgradeHTTP(r, w)
+	ws, err := cstUpgrader.Upgrade(w, r, nil)
 	if err != nil {
 		t.Logf("Upgrade: %v", err)
 		return
 	}
+	defer ws.Close()
 
-	defer conn.Close()
-
-	msg, op, err := wsutil.ReadClientData(conn)
+	op, rd, err := ws.NextReader()
 	if err != nil {
-		t.Logf("ReadClientData: %v", err)
+		t.Logf("NextReader: %v", err)
 		return
 	}
-	err = wsutil.WriteServerMessage(conn, op, msg)
+	wr, err := ws.NextWriter(op)
 	if err != nil {
-		t.Logf("WriteServerMessage: %v", err)
+		t.Logf("NextWriter: %v", err)
+		return
+	}
+	if _, err = io.Copy(wr, rd); err != nil {
+		t.Logf("NextWriter: %v", err)
+		return
+	}
+	if err := wr.Close(); err != nil {
+		t.Logf("Close: %v", err)
 		return
 	}
 }
@@ -96,13 +112,12 @@ func TestConn_Dial(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			c := &Conn{}
-			var tlsConf *tls.Config
 			if tt.name == "ws-tls" {
-				tlsConf = &tls.Config{
+				c.Dialer.TLSClientConfig = &tls.Config{
 					InsecureSkipVerify: true,
 				}
 			}
-			if err := c.Dial(tt.args.url, tlsConf); (err != nil) != tt.wantErr {
+			if err := c.Dial(tt.args.url); (err != nil) != tt.wantErr {
 				t.Errorf("Conn.Dial() error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})
@@ -167,7 +182,7 @@ func TestConn_Send(t *testing.T) {
 				OnConnected: tt.fields.OnConnected,
 				MatchMsg:    tt.fields.MatchMsg,
 			}
-			err := c.Dial(tt.args.url, nil)
+			err := c.Dial(tt.args.url)
 			if err != nil {
 				t.Errorf("Conn.Dial() error = %v", err)
 			}
