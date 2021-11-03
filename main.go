@@ -174,6 +174,10 @@ func (c *Conn) Send(msg Msg) (err error) {
 	return nil
 }
 
+func (c *Conn) Close() {
+	c.write(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
+}
+
 // RemoveFromQueue unregisters a callback from the queue in the event it has timed out
 func (c *Conn) RemoveFromQueue(msg Msg) (err error) {
 	defer func() {
