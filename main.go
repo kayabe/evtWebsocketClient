@@ -32,7 +32,7 @@ type Conn struct {
 	addToQueue  chan msgOperation
 
 	Dialer        websocket.Dialer
-	RequestHeader http.Header
+	RequestHeader *http.Header
 
 	PingMsg                 []byte
 	ComposePingMessage      func() []byte
@@ -356,9 +356,12 @@ func (c *Conn) Dial(url string) error {
 
 	var err error
 	if c.BasicAuth != nil {
+		if c.RequestHeader == nil {
+			c.RequestHeader = &http.Header{}
+		}
 		c.RequestHeader.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte(c.BasicAuth.Username+":"+c.BasicAuth.Password)))
 	}
-	c.ws, _, err = c.Dialer.DialContext(context.Background(), url, c.RequestHeader)
+	c.ws, _, err = c.Dialer.DialContext(context.Background(), url, *c.RequestHeader)
 	if err != nil {
 		return err
 	}
